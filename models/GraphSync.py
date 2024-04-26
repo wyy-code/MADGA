@@ -130,11 +130,11 @@ class ScaleDotProductAttention(nn.Module):
         return score, k
 
 
-class GOT(nn.Module):
+class GraphSync(nn.Module):
 
     def __init__(self, n_blocks, input_size, hidden_size, n_hidden, window_size, n_sensor, dropout=0.1, model="MAF",
                  batch_norm=True):
-        super(GOT, self).__init__()
+        super(GraphSync, self).__init__()
 
         self.rnn = nn.LSTM(input_size=input_size, hidden_size=hidden_size, batch_first=True, dropout=dropout)
         self.gcn = GNN(input_size=hidden_size, hidden_size=hidden_size)
