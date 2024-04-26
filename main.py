@@ -3,7 +3,7 @@ import os
 import argparse
 import torch
 from models.MTGFLOW import MTGFLOW
-from models.GOT import GOT
+from models.GraphSync import GraphSync
 import numpy as np
 from sklearn.metrics import roc_auc_score, precision_recall_curve 
 
@@ -40,7 +40,7 @@ args.cuda = torch.cuda.is_available()
 device = torch.device("cuda" if args.cuda else "cpu")
 
 
-for seed in range(15,20):
+for seed in range(15,16):
     args.seed = seed
     print(args)
     import random
@@ -77,7 +77,7 @@ for seed in range(15,20):
     # model = MTGFLOW(args.n_blocks, args.input_size, args.hidden_size, args.n_hidden, args.window_size, n_sensor, dropout=0.0, model = args.model, batch_norm=args.batch_norm)
     # model = model.to(device)
 
-    model = GOT(args.n_blocks, args.input_size, args.hidden_size, args.n_hidden, args.window_size, n_sensor,
+    model = GraphSync(args.n_blocks, args.input_size, args.hidden_size, args.n_hidden, args.window_size, n_sensor,
                     dropout=0.0, model=args.model, batch_norm=args.batch_norm)
     model = model.to(device)
 
@@ -97,13 +97,14 @@ for seed in range(15,20):
         {'params':model.parameters(), 'weight_decay':args.weight_decay},
         ], lr=lr, weight_decay=0.0)
 
-    for epoch in range(40):
+    for epoch in range(60):
         print(epoch)
         loss_train = []
 
         model.train()
         for x,_,idx in train_loader:
             x = x.to(device)
+            # print(x.shape)
 
             optimizer.zero_grad()
             loss = -model(x,)
