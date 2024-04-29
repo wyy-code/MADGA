@@ -19,30 +19,43 @@ def loader_PSM(root, batch_size, window_size, stride_size,train_split,label=Fals
     
     feature = data.iloc[:,:25]
     scaler = StandardScaler()
-    
+
+    dif_n = 1
+    dif_feature = feature.copy()
+    for _ in range(dif_n):
+        dif_feature= dif_feature[1:]-dif_feature[:-1]
 
     norm_feature = scaler.fit_transform(feature)
+    dif_norm_feature = scaler.fit_transform(dif_feature)
 
     n_sensor = norm_feature.shape[1]
 
     norm_feature = pd.DataFrame(norm_feature, columns= data.columns[1:], index = Timestamp)
     norm_feature = norm_feature.dropna(axis=1)
+    dif_norm_feature = pd.DataFrame(dif_norm_feature, columns= data.columns[1:], index = Timestamp)
+    dif_norm_feature = dif_norm_feature.dropna(axis=1)
+
+    norm_feature = norm_feature.iloc[dif_n:]
+
     train_df = norm_feature.iloc[:int(train_split*len(data))]
-    train_label = labels[:int(train_split*len(data))]
+    train_df_dif = dif_norm_feature.iloc[:int(train_split*len(data))]
+    train_label = labels[dif_n:int(train_split*len(data))]
 
     val_df = norm_feature.iloc[int(0.6*len(data)):int(0.8*len(data))]
+    val_df_dif = dif_norm_feature.iloc[int(0.6*len(data)):int(0.8*len(data))]
     val_label = labels[int(0.6*len(data)):int(0.8*len(data))]
 
     test_df = norm_feature.iloc[int(train_split*len(data)):]
+    test_df_dif = dif_norm_feature.iloc[int(train_split*len(data)):]
     test_label = labels[int(train_split*len(data)):]
 
     print('testset size',test_df.shape, 'anomaly ration', sum(test_label)/len(test_label))
     if label:
-        train_loader = DataLoader(SWat_dataset(train_df,train_label, window_size, stride_size), batch_size=batch_size, shuffle=False)
+        train_loader = DataLoader(SWat_dataset(train_df,train_df_dif, train_label, window_size, stride_size), batch_size=batch_size, shuffle=False)
     else:
-        train_loader = DataLoader(SWat_dataset(train_df,train_label, window_size, stride_size), batch_size=batch_size, shuffle=True)
-    val_loader = DataLoader(SWat_dataset(val_df,val_label, window_size, stride_size), batch_size=batch_size, shuffle=False)
-    test_loader = DataLoader(SWat_dataset(test_df,test_label, window_size, stride_size), batch_size=batch_size, shuffle=False)
+        train_loader = DataLoader(SWat_dataset(train_df,train_df_dif,train_label, window_size, stride_size), batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(SWat_dataset(val_df,val_df_dif,val_label, window_size, stride_size), batch_size=batch_size, shuffle=False)
+    test_loader = DataLoader(SWat_dataset(test_df,test_df_dif,test_label, window_size, stride_size), batch_size=batch_size, shuffle=False)
     return train_loader, val_loader, test_loader, n_sensor
 
 def loader_PSM_OCC(root, batch_size, window_size, stride_size,train_split,label=False):
@@ -116,20 +129,20 @@ def loader_PSM_OCC(root, batch_size, window_size, stride_size,train_split,label=
 
 
 class SWat_dataset(Dataset):
-    def __init__(self, df, label, window_size=60, stride_size=10) -> None:
+    def __init__(self, df, df_dif, label, window_size=60, stride_size=10) -> None:
         super(SWat_dataset, self).__init__()
         self.df = df
         self.window_size = window_size
         self.stride_size = stride_size
 
-        self.data, self.idx, self.label = self.preprocess(df,label)
+        self.data, self.idx, self.label = self.preprocess(df,df_dif,label)
         self.columns = np.append(df.columns, ["Label"])
         self.timeindex = df.index[self.idx]
         print('label', self.label.shape, sum(self.label)/len(self.label))
         print('idx',self.idx.shape)
         print('data',self.data.shape)
         # print(len(self.data), len(self.idx), len(self.label))
-    def preprocess(self, df, label):
+    def preprocess(self, df, df_dif, label):
 
         start_idx = np.arange(0,len(df)-self.window_size,self.stride_size)
         end_idx = np.arange(self.window_size, len(df), self.stride_size)
