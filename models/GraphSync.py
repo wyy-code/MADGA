@@ -129,6 +129,44 @@ class ScaleDotProductAttention(nn.Module):
 
         return score, k
 
+class Temporal_ScaleDotProductAttention(nn.Module):
+    """
+    compute scale dot product attention
+
+    Query : given sentence that we focused on (decoder)
+    Key : every sentence to check relationship with Qeury(encoder)
+    Value : every sentence same with Key (encoder)
+    """
+
+    def __init__(self, c):
+        super(Temporal_ScaleDotProductAttention, self).__init__()
+        self.w_q = nn.Linear(c, c)
+        self.w_k = nn.Linear(c, c)
+        self.w_v = nn.Linear(c, c)
+        self.softmax = nn.Softmax(dim=1)
+        self.dropout = nn.Dropout(0.2)
+        # swat_0.2
+
+    def forward(self, x, mask=None, e=1e-12):
+        # input is 4 dimension tensor
+        # [batch_size, head, length, d_tensor]
+        shape = x.shape
+        x_shape = x.reshape((shape[0], shape[1], -1))
+        batch_size, length, c = x_shape.size()
+        q = self.w_q(x_shape)
+        k = self.w_k(x_shape)
+        q_t = q.view(batch_size, c, length)  # transpose
+        score = (q_t @ k) / math.sqrt(length)  # scaled dot product
+
+        # 2. apply masking (opt)
+        if mask is not None:
+            score = score.masked_fill(mask == 0, -1e9)
+
+        # 3. pass them softmax to make [0, 1] range
+        score = self.dropout(self.softmax(score))
+
+        return score, k
+
 
 class GraphSync(nn.Module):
 
@@ -138,13 +176,16 @@ class GraphSync(nn.Module):
 
         self.rnn = nn.LSTM(input_size=input_size, hidden_size=hidden_size, batch_first=True, dropout=dropout)
         self.gcn = GNN(input_size=hidden_size, hidden_size=hidden_size)
+        # self.gat = GAT(hidden_size, hidden_size)
         if model == "MAF":
             # self.nf = MAF(n_blocks, n_sensor, input_size, hidden_size, n_hidden, cond_label_size=hidden_size, batch_norm=batch_norm,activation='tanh', mode = 'zero')
             self.nf = MAF(n_blocks, n_sensor, input_size, hidden_size, n_hidden, cond_label_size=hidden_size,
                           batch_norm=batch_norm, activation='tanh')
+            self.nf_t = MAF(n_blocks, n_sensor, input_size, hidden_size, n_hidden, cond_label_size=hidden_size,
+                          batch_norm=batch_norm, activation='tanh')
 
         self.attention = ScaleDotProductAttention(window_size * input_size)
-        self.similarity_matrix = Similarity_matrix()
+        # self.similarity_matrix = Similarity_matrix()
 
     def forward(self, x, ):
         return self.test(x, ).mean()
@@ -159,19 +200,59 @@ class GraphSync(nn.Module):
         h, _ = self.rnn(x)
 
         # resahpe: N, K, L, H
-        # h = h.reshape((full_shape[0], h.shape[1], full_shape[1], h.shape[2]))
         h = h.reshape((full_shape[0], full_shape[1], h.shape[1], h.shape[2]))
+
         h = self.gcn(h, graph)
 
-        sim = self.similarity_matrix(h,full_shape[0])
+        # sim = self.similarity_matrix(h,full_shape[0])
 
-        # reshappe N*K*L,H
+        def IPOT_distance_torch_batch(C, beta=0.5, epsilon=1e-8):
+            """
+            Compute the IPOT distances for a batch of cost matrices C and regularization beta.
+            This function returns a tensor of distances, one for each batch element.
+            """
+            batch_size, n, m = C.size()
+            T = torch.ones((batch_size, n, m), dtype=C.dtype, device=C.device, requires_grad=True) / m
+            sigma = torch.ones((batch_size, m, 1), dtype=C.dtype, device=C.device, requires_grad=True) / m
+
+            A = torch.exp(-C / beta)
+            A = torch.clamp(A, min=epsilon)  # Avoid values too small
+
+            for _ in range(50):  # Number of iterations
+                Q = A * T
+                for _ in range(1):  # Inner loop
+                    delta = 1 / (torch.bmm(Q, sigma) * n + epsilon)
+                    sigma = 1 / (torch.bmm(Q.transpose(1, 2), delta) * m + epsilon)
+                    T = torch.bmm(torch.diag_embed(delta.squeeze(-1)), Q)
+                    T = torch.bmm(T, torch.diag_embed(sigma.squeeze(-1)))
+
+            # Compute the IPOT distances for each batch
+            distances = torch.stack([torch.trace(torch.matmul(C[b], T[b].t())) for b in range(batch_size)])
+
+            return distances
+        # Calculate cosine cost matrix
+        cosine_cost = 1 - torch.matmul(h.reshape((full_shape[0],full_shape[1],-1)), h.reshape((full_shape[0],full_shape[1],-1)).transpose(1,2))
+
+        # Prune with threshold
+        _beta = 0.2
+        minval = torch.min(cosine_cost)
+        maxval = torch.max(cosine_cost)
+        threshold = minval + _beta * (maxval - minval)
+        cosine_cost = torch.nn.functional.relu(cosine_cost - threshold)
+
+        # Calculate OT loss using IPOT distance function
+        OT_loss = IPOT_distance_torch_batch(cosine_cost)
+        # #
+        # # # reshappe N*K*L,H
         h = h.reshape((-1, h.shape[3]))
         x = x.reshape((-1, full_shape[3]))
         log_prob = self.nf.log_prob(x, full_shape[1], full_shape[2], h).reshape([full_shape[0], -1])  #
+
         log_prob = log_prob.mean(dim=1)
 
-        return log_prob + 0.1*sim
+        alpha = 0.01
+
+        return log_prob - alpha*OT_loss
 
     def get_graph(self):
         return self.graph
@@ -198,6 +279,8 @@ class GraphSync(nn.Module):
 
         return log_prob.mean(dim=2), z.reshape((full_shape[0] * full_shape[1], -1))
 
+
+
 class Similarity_matrix(nn.Module):
     def __init__(self):
         super(Similarity_matrix, self).__init__()
@@ -212,40 +295,3 @@ class Similarity_matrix(nn.Module):
 
         return sim
 
-
-class test(nn.Module):
-    def __init__(self, n_blocks, input_size, hidden_size, n_hidden, window_size, n_sensor, dropout=0.1, model="MAF",
-                 batch_norm=True):
-        super(test, self).__init__()
-
-        if model == "MAF":
-            self.nf = MAF(n_blocks, n_sensor, input_size, hidden_size, n_hidden, batch_norm=batch_norm,
-                          activation='tanh', mode='zero')
-        self.attention = ScaleDotProductAttention(window_size * input_size)
-
-    def forward(self, x, ):
-        return self.test(x, ).mean()
-
-    def test(self, x):
-        x = x.unsqueeze(2).unsqueeze(3)
-        full_shape = x.shape
-        x = x.reshape((full_shape[0] * full_shape[1], full_shape[2], full_shape[3]))
-        x = x.reshape((-1, full_shape[3]))
-        log_prob = self.nf.log_prob(x, full_shape[1], full_shape[2]).reshape(
-            [full_shape[0], full_shape[1], -1])  # *full_shape[1]*full_shape[2]
-        log_prob = log_prob.mean(dim=1)
-        return log_prob
-
-    def locate(self, x, ):
-        # x: N X K X L X D
-        x = x.unsqueeze(2).unsqueeze(3)
-        full_shape = x.shape
-
-        x = x.reshape((x.shape[0] * x.shape[1], x.shape[2], x.shape[3]))
-
-        # reshappe N*K*L,H
-        x = x.reshape((-1, full_shape[3]))
-        a = self.nf.log_prob(x, full_shape[1], full_shape[2])  # *full_shape[1]*full_shape[2]
-        log_prob, z = a[0].reshape([full_shape[0], full_shape[1], -1]), a[1].reshape([full_shape[0], full_shape[1], -1])
-
-        return log_prob.mean(dim=2), z.reshape((full_shape[0] * full_shape[1], -1))
