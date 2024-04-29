@@ -129,44 +129,6 @@ class ScaleDotProductAttention(nn.Module):
 
         return score, k
 
-class Temporal_ScaleDotProductAttention(nn.Module):
-    """
-    compute scale dot product attention
-
-    Query : given sentence that we focused on (decoder)
-    Key : every sentence to check relationship with Qeury(encoder)
-    Value : every sentence same with Key (encoder)
-    """
-
-    def __init__(self, c):
-        super(Temporal_ScaleDotProductAttention, self).__init__()
-        self.w_q = nn.Linear(c, c)
-        self.w_k = nn.Linear(c, c)
-        self.w_v = nn.Linear(c, c)
-        self.softmax = nn.Softmax(dim=1)
-        self.dropout = nn.Dropout(0.2)
-        # swat_0.2
-
-    def forward(self, x, mask=None, e=1e-12):
-        # input is 4 dimension tensor
-        # [batch_size, head, length, d_tensor]
-        shape = x.shape
-        x_shape = x.reshape((shape[0], shape[1], -1))
-        batch_size, length, c = x_shape.size()
-        q = self.w_q(x_shape)
-        k = self.w_k(x_shape)
-        q_t = q.view(batch_size, c, length)  # transpose
-        score = (q_t @ k) / math.sqrt(length)  # scaled dot product
-
-        # 2. apply masking (opt)
-        if mask is not None:
-            score = score.masked_fill(mask == 0, -1e9)
-
-        # 3. pass them softmax to make [0, 1] range
-        score = self.dropout(self.softmax(score))
-
-        return score, k
-
 
 class GraphSync(nn.Module):
 
@@ -180,8 +142,6 @@ class GraphSync(nn.Module):
         if model == "MAF":
             # self.nf = MAF(n_blocks, n_sensor, input_size, hidden_size, n_hidden, cond_label_size=hidden_size, batch_norm=batch_norm,activation='tanh', mode = 'zero')
             self.nf = MAF(n_blocks, n_sensor, input_size, hidden_size, n_hidden, cond_label_size=hidden_size,
-                          batch_norm=batch_norm, activation='tanh')
-            self.nf_t = MAF(n_blocks, n_sensor, input_size, hidden_size, n_hidden, cond_label_size=hidden_size,
                           batch_norm=batch_norm, activation='tanh')
 
         self.attention = ScaleDotProductAttention(window_size * input_size)
@@ -201,7 +161,6 @@ class GraphSync(nn.Module):
 
         # resahpe: N, K, L, H
         h = h.reshape((full_shape[0], full_shape[1], h.shape[1], h.shape[2]))
-
         h = self.gcn(h, graph)
 
         # sim = self.similarity_matrix(h,full_shape[0])
@@ -294,4 +253,3 @@ class Similarity_matrix(nn.Module):
         sim = sim.sum(dim=1) / (shape_1 - 1)
 
         return sim
-
