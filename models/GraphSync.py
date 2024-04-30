@@ -198,7 +198,7 @@ class GraphSync(nn.Module):
             return 1 - A_normalized  # Convert to cost matrix
 
         def IPOT_batch(C, beta=0.5, iteration=50):
-            """Iterative Proportional Fitting Procedure to solve Optimal Transport for a batch."""
+            """IPOT for batch processing of multiple cost matrices."""
             bs, n, m = C.size()
             sigma = torch.ones(bs, m, 1, device=C.device) / m
             T = torch.ones(bs, n, m, device=C.device)
@@ -206,20 +206,22 @@ class GraphSync(nn.Module):
             for _ in range(iteration):
                 Q = A * T
                 delta = 1 / (n * torch.bmm(Q, sigma))
-                sigma = 1 / (m * torch.bmm(torch.transpose(Q, 1, 2), delta))
+                sigma = 1 / (m * torch.bmm(Q.transpose(1, 2), delta))
                 T = delta * Q * sigma.transpose(2, 1)
             return T
 
-        def compute_gw_distances(A, lamda=1e-1, OT_iteration=20):
-            """Calculate Gromov-Wasserstein distances using adjacency matrix A."""
+        def compute_gw_distances(A, lamda=1e-1, iteration=5, OT_iteration=20):
+            """Compute GW distances using fully vectorized operations."""
             C = normalize_and_convert_to_cost_matrix(A)
             bs = C.size(0)
-            all_distances = torch.zeros(bs, bs, device=C.device)
-            for i in range(bs):
-                Cii = C[i].unsqueeze(0).repeat(bs, 1, 1)
-                gamma = IPOT_batch(Cii, beta=lamda, iteration=OT_iteration)
-                all_distances[i] = torch.sum(Cii * gamma, dim=[1, 2])
-            return all_distances
+            expanded_C = C.unsqueeze(1).expand(bs, bs, -1, -1)
+            transposed_C = expanded_C.transpose(2, 3)
+            gamma = IPOT_batch(expanded_C.reshape(bs * bs, *C.shape[1:]), beta=lamda, iteration=OT_iteration)
+            gamma_rev = IPOT_batch(transposed_C.reshape(bs * bs, *C.shape[1:]), beta=lamda, iteration=OT_iteration)
+            gamma = gamma.reshape(bs, bs, *C.shape[1:])
+            gamma_rev = gamma_rev.reshape(bs, bs, *C.shape[1:])
+            result = torch.sum(expanded_C * gamma, dim=(2, 3)) + torch.sum(transposed_C * gamma_rev, dim=(2, 3))
+            return result.diag()  # Assuming diagonal contains the self-distances
 
 
         # # Calculate cosine cost matrix
@@ -235,7 +237,7 @@ class GraphSync(nn.Module):
         # # Calculate OT loss using IPOT distance function
         # wd = IPOT_distance_torch_batch(cosine_cost)
 
-        gwd = compute_gw_distances(graph).mean(dim=1)
+        gwd = compute_gw_distances(graph)
 
         OT_loss = gwd
 
