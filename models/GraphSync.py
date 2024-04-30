@@ -5,6 +5,7 @@ from numpy import percentile
 import torch.nn as nn
 import torch.nn.functional as F
 from models.NF import MAF
+from models.GNF import MAF_G
 import torch
 
 
@@ -171,8 +172,8 @@ class GraphSync(nn.Module):
             This function returns a tensor of distances, one for each batch element.
             """
             batch_size, n, m = C.size()
-            T = torch.ones((batch_size, n, m), dtype=C.dtype, device=C.device, requires_grad=True) / m
-            sigma = torch.ones((batch_size, m, 1), dtype=C.dtype, device=C.device, requires_grad=True) / m
+            T = torch.ones((batch_size, n, m), dtype=C.dtype, device=C.device, requires_grad=False) / m
+            sigma = torch.ones((batch_size, m, 1), dtype=C.dtype, device=C.device, requires_grad=False) / m
 
             A = torch.exp(-C / beta)
             A = torch.clamp(A, min=epsilon)  # Avoid values too small
@@ -189,18 +190,55 @@ class GraphSync(nn.Module):
             distances = torch.stack([torch.trace(torch.matmul(C[b], T[b].t())) for b in range(batch_size)])
 
             return distances
-        # Calculate cosine cost matrix
-        cosine_cost = 1 - torch.matmul(h.reshape((full_shape[0],full_shape[1],-1)), h.reshape((full_shape[0],full_shape[1],-1)).transpose(1,2))
 
-        # Prune with threshold
-        _beta = 0.2
-        minval = torch.min(cosine_cost)
-        maxval = torch.max(cosine_cost)
-        threshold = minval + _beta * (maxval - minval)
-        cosine_cost = torch.nn.functional.relu(cosine_cost - threshold)
+        def normalize_and_convert_to_cost_matrix(A):
+            """Normalize the adjacency matrix and convert to cost matrix."""
+            row_sums = A.sum(dim=2, keepdim=True) + 1e-10  # Avoid division by zero
+            A_normalized = A / row_sums
+            return 1 - A_normalized  # Convert to cost matrix
 
-        # Calculate OT loss using IPOT distance function
-        OT_loss = IPOT_distance_torch_batch(cosine_cost)
+        def IPOT_batch(C, beta=0.5, iteration=50):
+            """Iterative Proportional Fitting Procedure to solve Optimal Transport for a batch."""
+            bs, n, m = C.size()
+            sigma = torch.ones(bs, m, 1, device=C.device) / m
+            T = torch.ones(bs, n, m, device=C.device)
+            A = torch.exp(-C / beta).float()
+            for _ in range(iteration):
+                Q = A * T
+                delta = 1 / (n * torch.bmm(Q, sigma))
+                sigma = 1 / (m * torch.bmm(torch.transpose(Q, 1, 2), delta))
+                T = delta * Q * sigma.transpose(2, 1)
+            return T
+
+        def compute_gw_distances(A, lamda=1e-1, OT_iteration=20):
+            """Calculate Gromov-Wasserstein distances using adjacency matrix A."""
+            C = normalize_and_convert_to_cost_matrix(A)
+            bs = C.size(0)
+            all_distances = torch.zeros(bs, bs, device=C.device)
+            for i in range(bs):
+                Cii = C[i].unsqueeze(0).repeat(bs, 1, 1)
+                gamma = IPOT_batch(Cii, beta=lamda, iteration=OT_iteration)
+                all_distances[i] = torch.sum(Cii * gamma, dim=[1, 2])
+            return all_distances
+
+
+        # # Calculate cosine cost matrix
+        # cosine_cost = 1 - torch.matmul(h.reshape((full_shape[0],full_shape[1],-1)), h.reshape((full_shape[0],full_shape[1],-1)).transpose(1,2))
+        #
+        # # Prune with threshold
+        # _beta = 0.2
+        # minval = torch.min(cosine_cost)
+        # maxval = torch.max(cosine_cost)
+        # threshold = minval + _beta * (maxval - minval)
+        # cosine_cost = torch.nn.functional.relu(cosine_cost - threshold)
+        #
+        # # Calculate OT loss using IPOT distance function
+        # wd = IPOT_distance_torch_batch(cosine_cost)
+
+        gwd = compute_gw_distances(graph).mean(dim=1)
+
+        OT_loss = gwd
+
         # #
         # # # reshappe N*K*L,H
         h = h.reshape((-1, h.shape[3]))
@@ -209,9 +247,10 @@ class GraphSync(nn.Module):
 
         log_prob = log_prob.mean(dim=1)
 
-        alpha = 0.01
+        # alpha = 0.01
 
-        return log_prob - alpha*OT_loss
+        return OT_loss
+        # return log_prob - alpha*OT_loss
 
     def get_graph(self):
         return self.graph
