@@ -3,21 +3,22 @@ import os
 import argparse
 import torch
 from models.MTGFLOW import MTGFLOW
+from models.GraphSync import GraphSync
 import numpy as np
 from sklearn.metrics import roc_auc_score, precision_recall_curve 
 
 parser = argparse.ArgumentParser()
 
 parser.add_argument('--data_dir', type=str, 
-                    default='../u_s/input/labeled_anomalies.csv', help='Location of datasets.')
+                    default='../u_s/input/SWaT_Dataset_Attack_v0.csv', help='Location of datasets.')
 parser.add_argument('--output_dir', type=str, 
                     default='./checkpoint/')
-parser.add_argument('--name',default='PSM', help='the name of dataset')
+parser.add_argument('--name',default='SWaT', help='the name of dataset')
 
 parser.add_argument('--model', type=str, default='MAF')
 
 
-parser.add_argument('--n_blocks', type=int, default=2, help='Number of blocks to stack in a model (MADE in MAF; Coupling+BN in RealNVP).')
+parser.add_argument('--n_blocks', type=int, default=1, help='Number of blocks to stack in a model (MADE in MAF; Coupling+BN in RealNVP).')
 parser.add_argument('--n_components', type=int, default=1, help='Number of Gaussian clusters for mixture of gaussians models.')
 parser.add_argument('--hidden_size', type=int, default=32, help='Hidden layer size for MADE (and each MADE block in an MAF).')
 parser.add_argument('--n_hidden', type=int, default=1, help='Number of hidden layers in each MADE.')
@@ -59,10 +60,10 @@ elif args.name == 'PSM':
 
 
 #%%
-model = MTGFLOW(args.n_blocks, args.input_size, args.hidden_size, args.n_hidden, args.window_size, n_sensor, dropout=0.0, model = args.model, batch_norm=args.batch_norm)
+model = GraphSync(args.n_blocks, args.input_size, args.hidden_size, args.n_hidden, args.window_size, n_sensor, dropout=0.0, model = args.model, batch_norm=args.batch_norm)
 model = model.to(device)
 
-checkpoint = torch.load(f"{save_path}/model.pth", map_location=torch.device('cpu'))
+checkpoint = torch.load(f"{save_path}/model.pth")
 model.load_state_dict(checkpoint['model'])
 
 
