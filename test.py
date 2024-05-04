@@ -10,7 +10,7 @@ from sklearn.metrics import roc_auc_score, precision_recall_curve
 parser = argparse.ArgumentParser()
 
 parser.add_argument('--data_dir', type=str, 
-                    default='../u_s/input/SWaT_Dataset_Attack_v0.csv', help='Location of datasets.')
+                    default='./Data/input/SWaT_Dataset_Attack_v0.csv', help='Location of datasets.')
 parser.add_argument('--output_dir', type=str, 
                     default='./checkpoint/')
 parser.add_argument('--name',default='SWaT', help='the name of dataset')
@@ -39,15 +39,11 @@ args.cuda = torch.cuda.is_available()
 device = torch.device("cuda" if args.cuda else "cpu")
 save_path = os.path.join(args.output_dir,args.name)
 
-from Dataset import load_smd_smap_msl, loader_SWat, loader_WADI, loader_PSM, loader_WADI_OCC
+from Dataset import load_smd_smap_msl, loader_SWat, loader_PSM
 
 if args.name == 'SWaT':
     train_loader, val_loader, test_loader, n_sensor = loader_SWat(args.data_dir, \
                                                                     args.batch_size, args.window_size, args.stride_size, args.train_split)
-
-elif args.name == 'Wadi':
-    train_loader, val_loader, test_loader, n_sensor = loader_WADI(args.data_dir, \
-                                                                args.batch_size, args.window_size, args.stride_size, args.train_split)
 
 elif args.name == 'SMAP' or args.name == 'MSL' or args.name.startswith('machine'):
     train_loader, val_loader, test_loader, n_sensor = load_smd_smap_msl(args.name, \
