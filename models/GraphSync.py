@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from models.NF import MAF
 import torch
-from models.GW import IPOT_distance_torch_batch
+from models.GW import IPOT_distance_torch_batch, GW_distance_pytorch_simplified, prune, normalize_and_convert_to_cost_matrix, IPOT_distance_torch_batch_optimized
 
 def interpolate(tensor, index, target_size, mode='nearest', dim=0):
     print(tensor.shape)
@@ -160,6 +160,22 @@ class GraphSync(nn.Module):
         x = x.reshape((x.shape[0] * x.shape[1], x.shape[2], x.shape[3]))
         h, _ = self.rnn(x)
 
+        # # Cosine similarity calculations in PyTorch
+        Cs = 1 - normalize_and_convert_to_cost_matrix(graph)
+        Ct = 1 - normalize_and_convert_to_cost_matrix(graph.transpose(1,2))
+
+        # Prune function applied
+        Css = prune(Cs).to(h.device)
+        Ctt = prune(Ct).to(h.device)
+
+        gwd = GW_distance_pytorch_simplified(Css, Ctt)
+
+        # resahpe: N, K, L, H
+        h = h.reshape((full_shape[0], full_shape[1], h.shape[1], h.shape[2]))
+        h = self.gcn(h, graph)
+
+        # sim = self.similarity_matrix(h,full_shape[0])
+
         # # # Calculate cosine cost matrix
         cosine_cost = 1 - torch.matmul(h.reshape((full_shape[0],full_shape[1],-1)), h.reshape((full_shape[0],full_shape[1],-1)).transpose(1,2))
 
@@ -171,15 +187,8 @@ class GraphSync(nn.Module):
         cosine_cost = torch.nn.functional.relu(cosine_cost - threshold)
 
         # Calculate OT loss using IPOT distance function
-        wd = IPOT_distance_torch_batch(cosine_cost)
-
-        OT_loss = wd
-
-        # resahpe: N, K, L, H
-        h = h.reshape((full_shape[0], full_shape[1], h.shape[1], h.shape[2]))
-        h = self.gcn(h, graph)
-
-        # sim = self.similarity_matrix(h,full_shape[0])
+        # wd = IPOT_distance_torch_batch(cosine_cost)
+        wd = IPOT_distance_torch_batch_optimized(cosine_cost)
 
         # #
         # # # reshappe N*K*L,H
@@ -189,10 +198,8 @@ class GraphSync(nn.Module):
 
         log_prob = log_prob.mean(dim=1)
 
-        alpha = 1
-
         # return OT_loss
-        return log_prob - alpha*OT_loss
+        return log_prob - 0.1*wd - 0.1*gwd
 
     def get_graph(self):
         return self.graph
