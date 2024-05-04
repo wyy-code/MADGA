@@ -16,7 +16,7 @@ def IPOT_distance_torch_batch(C, beta=0.5, epsilon=1e-8):
     A = torch.exp(-C / beta)
     A = torch.clamp(A, min=epsilon)  # Avoid values too small
 
-    for _ in range(50):  # Number of iterations
+    for _ in range(20):  # Number of iterations
         Q = A * T
         for _ in range(1):  # Inner loop
             delta = 1 / (torch.bmm(Q, sigma) * n + epsilon)
@@ -26,6 +26,31 @@ def IPOT_distance_torch_batch(C, beta=0.5, epsilon=1e-8):
 
     # Compute the IPOT distances for each batch
     distances = torch.stack([torch.trace(torch.matmul(C[b], T[b].t())) for b in range(batch_size)])
+
+    return distances
+
+def IPOT_distance_torch_batch_optimized(C, beta=0.5, epsilon=1e-8):
+    """
+    Compute the IPOT distances for a batch of cost matrices C and regularization beta using optimized operations.
+    This function returns a tensor of distances, one for each batch element.
+    """
+    batch_size, n, m = C.size()
+    T = torch.ones((batch_size, n, m), dtype=C.dtype, device=C.device) / m
+    sigma = torch.ones((batch_size, m, 1), dtype=C.dtype, device=C.device) / m
+
+    A = torch.exp(-C / beta)
+    A = torch.clamp(A, min=epsilon)  # Avoid values too small
+
+    for _ in range(20):  # Number of iterations
+        Q = A * T
+        delta = 1 / (torch.bmm(Q, sigma) * n + epsilon)
+        sigma = 1 / (torch.bmm(Q.transpose(1, 2), delta) * m + epsilon)
+        T = torch.bmm(torch.diag_embed(delta.squeeze(-1)), Q)
+        T = torch.bmm(T, torch.diag_embed(sigma.squeeze(-1)))
+
+    # Compute the IPOT distances for each batch more efficiently
+    C_transposed = C.transpose(1, 2)  # Pre-transpose C
+    distances = torch.einsum('bij,bji->b', [C, T])  # Efficient batch-wise trace of matmul
 
     return distances
 
