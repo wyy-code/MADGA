@@ -1,229 +1,138 @@
-# %%
-from cgitb import reset
-from turtle import forward, shape
-from numpy import percentile
-import torch.nn as nn
-import torch.nn.functional as F
-from models.NF import MAF
+#%%
+import os
+import argparse
 import torch
-from models.GW import IPOT_distance_torch_batch, GW_distance_pytorch_simplified, prune, normalize_and_convert_to_cost_matrix
+from models.MTGFLOW import MTGFLOW
+from models.GraphSync import GraphSync
+import numpy as np
+from sklearn.metrics import roc_auc_score, precision_recall_curve 
 
-def interpolate(tensor, index, target_size, mode='nearest', dim=0):
-    print(tensor.shape)
-    source_length = tensor.shape[dim]
-    if source_length > target_size:
-        raise AttributeError('no need to interpolate')
-    if dim == -1:
-        new_tensor = torch.zeros((*tensor.shape[:-1], target_size), dtype=tensor.dtype, device=tensor.device)
-    if dim == 0:
-        new_tensor = torch.zeros((target_size, *tensor.shape[1:],), dtype=tensor.dtype, device=tensor.device)
-    scale = target_size // source_length
-    reset = target_size % source_length
-    # if mode == 'nearest':
-    new_index = index
-    new_tensor[new_index, :] = tensor
-    new_tensor[:new_index[0], :] = tensor[0, :].unsqueeze(0)
-    for i in range(source_length - 1):
-        new_tensor[new_index[i]:new_index[i + 1], :] = tensor[i, :].unsqueeze(0)
-    new_tensor[new_index[i + 1]:, :] = tensor[i + 1, :].unsqueeze(0)
-    return new_tensor
+parser = argparse.ArgumentParser()
+
+parser.add_argument('--data_dir', type=str, 
+                    default='./Data/input/SWaT_Dataset_Attack_v0.csv', help='Location of datasets.')
+parser.add_argument('--output_dir', type=str, 
+                    default='./checkpoint/')
+parser.add_argument('--name',default='PSM', help='the name of dataset')
+
+parser.add_argument('--graph', type=str, default='None')
+parser.add_argument('--model', type=str, default='MAF')
 
 
-class GNN(nn.Module):
-    """
-    The GNN module applied in GANF
-    """
+parser.add_argument('--n_blocks', type=int, default=2, help='Number of blocks to stack in a model (MADE in MAF; Coupling+BN in RealNVP).')
+parser.add_argument('--n_components', type=int, default=1, help='Number of Gaussian clusters for mixture of gaussians models.')
+parser.add_argument('--hidden_size', type=int, default=32, help='Hidden layer size for MADE (and each MADE block in an MAF).')
+parser.add_argument('--n_hidden', type=int, default=1, help='Number of hidden layers in each MADE.')
+parser.add_argument('--input_size', type=int, default=1)
+parser.add_argument('--batch_norm', type=bool, default=False)
+parser.add_argument('--train_split', type=float, default=0.6)
+parser.add_argument('--stride_size', type=int, default=10)
 
-    def __init__(self, input_size, hidden_size):
-        super(GNN, self).__init__()
-        self.lin_n = nn.Linear(input_size, hidden_size)
-        self.lin_r = nn.Linear(input_size, hidden_size, bias=False)
-        self.lin_2 = nn.Linear(hidden_size, hidden_size)
-
-    def forward(self, h, A):
-        ## A: K X K
-        ## H: N X K  X L X D
-        # print(h.shape, A.shape)
-        # h_n = self.lin_n(torch.einsum('nkld,kj->njld',h,A))
-        # h_n = self.lin_n(torch.einsum('nkld,kj->njld',h,A))
-        # print(h.shape, A.shape)
-        h_n = self.lin_n(torch.einsum('nkld,nkj->njld', h, A))
-        h_r = self.lin_r(h[:, :, :-1])
-        h_n[:, :, 1:] += h_r
-        h = self.lin_2(F.relu(h_n))
-
-        return h
-
-
-import math
-import torch.nn as nn
-import matplotlib.pyplot as plt
-
-
-def plot_attention(data, i, X_label=None, Y_label=None):
-    '''
-      Plot the attention model heatmap
-      Args:
-        data: attn_matrix with shape [ty, tx], cutted before 'PAD'
-        X_label: list of size tx, encoder tags
-        Y_label: list of size ty, decoder tags
-    '''
-    fig, ax = plt.subplots(figsize=(20, 8))  # set figure size
-    heatmap = ax.pcolor(data, cmap=plt.cm.Blues, alpha=0.9)
-    fig.colorbar(heatmap)
-    # Set axis labels
-    if X_label != None and Y_label != None:
-        X_label = [x_label for x_label in X_label]
-        Y_label = [y_label for y_label in Y_label]
-
-        xticks = range(0, len(X_label))
-        ax.set_xticks(xticks, minor=False)  # major ticks
-        ax.set_xticklabels(X_label, minor=False, rotation=45)  # labels should be 'unicode'
-
-        yticks = range(0, len(Y_label))
-        ax.set_yticks(yticks, minor=False)
-        ax.set_yticklabels(Y_label[::-1], minor=False)  # labels should be 'unicode'
-
-        ax.grid(True)
-        plt.show()
-        plt.savefig('graph/attention{:04d}.jpg'.format(i))
-
-
-class ScaleDotProductAttention(nn.Module):
-    """
-    compute scale dot product attention
-
-    Query : given sentence that we focused on (decoder)
-    Key : every sentence to check relationship with Qeury(encoder)
-    Value : every sentence same with Key (encoder)
-    """
-
-    def __init__(self, c):
-        super(ScaleDotProductAttention, self).__init__()
-        self.w_q = nn.Linear(c, c)
-        self.w_k = nn.Linear(c, c)
-        self.w_v = nn.Linear(c, c)
-        self.softmax = nn.Softmax(dim=1)
-        self.dropout = nn.Dropout(0.2)
-        # swat_0.2
-
-    def forward(self, x, mask=None, e=1e-12):
-        # input is 4 dimension tensor
-        # [batch_size, head, length, d_tensor]
-        shape = x.shape
-        x_shape = x.reshape((shape[0], shape[1], -1))
-        batch_size, length, c = x_shape.size()
-        q = self.w_q(x_shape)
-        k = self.w_k(x_shape)
-        k_t = k.view(batch_size, c, length)  # transpose
-        # q_t = q.view(batch_size, c, length)  # transpose
-        # score = (q_t @ k) / math.sqrt(length)  # scaled dot product
-        score = (q @ k_t) / math.sqrt(c)  # scaled dot product
-
-        # 2. apply masking (opt)
-        if mask is not None:
-            score = score.masked_fill(mask == 0, -1e9)
-
-        # 3. pass them softmax to make [0, 1] range
-        score = self.dropout(self.softmax(score))
-
-        return score, k
-
-
-class GraphSync(nn.Module):
-
-    def __init__(self, n_blocks, input_size, hidden_size, n_hidden, window_size, n_sensor, dropout=0.1, model="MAF",
-                 batch_norm=True):
-        super(GraphSync, self).__init__()
-
-        self.rnn = nn.LSTM(input_size=input_size, hidden_size=hidden_size, batch_first=True, dropout=dropout)
-        self.gcn = GNN(input_size=hidden_size, hidden_size=hidden_size)
-        # self.gat = GAT(hidden_size, hidden_size)
-        if model == "MAF":
-            # self.nf = MAF(n_blocks, n_sensor, input_size, hidden_size, n_hidden, cond_label_size=hidden_size, batch_norm=batch_norm,activation='tanh', mode = 'zero')
-            self.nf = MAF(n_blocks, n_sensor, input_size, hidden_size, n_hidden, cond_label_size=hidden_size,
-                          batch_norm=batch_norm, activation='tanh')
-
-        self.attention = ScaleDotProductAttention(window_size * input_size)
-        # self.similarity_matrix = Similarity_matrix()
-
-    def forward(self, x, ):
-        return self.test(x, ).mean()
-
-    def test(self, x, ):
-        
-        # x: N X K X L X D
-        full_shape = x.shape
-        graph, _ = self.attention(x)
-        self.graph = graph
-        # reshape: N*K, L, D
-        x = x.reshape((x.shape[0] * x.shape[1], x.shape[2], x.shape[3]))
-        h, _ = self.rnn(x)
-
-        # Cosine similarity calculations in PyTorch
-        Cs = 1 - normalize_and_convert_to_cost_matrix(graph)
-        Ct = 1 - normalize_and_convert_to_cost_matrix(graph.transpose(1,2))
-
-        # Prune function applied
-        Css = prune(Cs).to(h.device)
-        Ctt = prune(Ct).to(h.device)
-
-        gwd = GW_distance_pytorch_simplified(Css, Ctt)
-
-        # resahpe: N, K, L, H
-        h = h.reshape((full_shape[0], full_shape[1], h.shape[1], h.shape[2]))
-        h = self.gcn(h, graph)
-
-        # sim = self.similarity_matrix(h,full_shape[0])
-
-        # #
-        # # # reshappe N*K*L,H
-        h = h.reshape((-1, h.shape[3]))
-        x = x.reshape((-1, full_shape[3]))
-        log_prob = self.nf.log_prob(x, full_shape[1], full_shape[2], h).reshape([full_shape[0], -1])  #
-
-        log_prob = log_prob.mean(dim=1)
-
-        # return OT_loss
-        return log_prob + 0.5*gwd
-
-    def get_graph(self):
-        return self.graph
-
-    def locate(self, x, ):
-        # x: N X K X L X D
-        full_shape = x.shape
-
-        graph, _ = self.attention(x)
-        # reshape: N*K, L, D
-        self.graph = graph
-        x = x.reshape((x.shape[0] * x.shape[1], x.shape[2], x.shape[3]))
-        h, _ = self.rnn(x)
-
-        # resahpe: N, K, L, H
-        h = h.reshape((full_shape[0], full_shape[1], h.shape[1], h.shape[2]))
-        h = self.gcn(h, graph)
-
-        # reshappe N*K*L,H
-        h = h.reshape((-1, h.shape[3]))
-        x = x.reshape((-1, full_shape[3]))
-        a = self.nf.log_prob(x, full_shape[1], full_shape[2], h)
-        log_prob, z = a[0].reshape([full_shape[0], full_shape[1], -1]), a[1].reshape([full_shape[0], full_shape[1], -1])
-
-        return log_prob.mean(dim=2), z.reshape((full_shape[0] * full_shape[1], -1))
+parser.add_argument('--batch_size', type=int, default=256)
+parser.add_argument('--weight_decay', type=float, default=5e-4)
+parser.add_argument('--window_size', type=int, default=60)
+parser.add_argument('--lr', type=float, default=2e-3, help='Learning rate.')
 
 
 
-class Similarity_matrix(nn.Module):
-    def __init__(self):
-        super(Similarity_matrix, self).__init__()
+args = parser.parse_known_args()[0]
+args.cuda = torch.cuda.is_available()
+device = torch.device("cuda:1" if args.cuda else "cpu")
+# device = torch.device("cpu")
 
-    def forward(self, h, shape_1):
-        h = h.view(shape_1, -1)
-        h = F.normalize(h, p=2, dim=1)
-        sim = torch.mm(h, h.t())
-        mask = torch.ones_like(sim)-torch.eye(shape_1, device=sim.device)
-        sim = sim*mask
-        sim = sim.sum(dim=1) / (shape_1 - 1)
 
-        return sim
+for seed in range(16,21):
+    args.seed = seed
+    print(args)
+    import random
+    import numpy as np
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    if args.cuda:
+        torch.cuda.manual_seed(args.seed)
+    #%%
+    print("Loading dataset")
+    print(args.name)
+    from Dataset import load_smd_smap_msl, loader_SWat, loader_PSM
+
+    if args.name == 'SWaT':
+        train_loader, val_loader, test_loader, n_sensor = loader_SWat(args.data_dir, \
+                                                                        args.batch_size, args.window_size, args.stride_size, args.train_split)
+
+    elif args.name == 'SMAP' or args.name == 'MSL' or args.name.startswith('machine'):
+        train_loader, val_loader, test_loader, n_sensor = load_smd_smap_msl(args.name, \
+                                                                    args.batch_size, args.window_size, args.stride_size, args.train_split)
+
+    elif args.name == 'PSM':
+        train_loader, val_loader, test_loader, n_sensor = loader_PSM(args.name, \
+                                                                    args.batch_size, args.window_size, args.stride_size, args.train_split)
+
+
+
+    #%%
+    # model = MTGFLOW(args.n_blocks, args.input_size, args.hidden_size, args.n_hidden, args.window_size, n_sensor, dropout=0.0, model = args.model, batch_norm=args.batch_norm)
+    # model = model.to(device)
+
+    model = GraphSync(args.n_blocks, args.input_size, args.hidden_size, args.n_hidden, args.window_size, n_sensor,
+                    dropout=0.0, model=args.model, batch_norm=args.batch_norm)
+    model = model.to(device)
+
+    #%%
+    from torch.nn.utils import clip_grad_value_
+    import seaborn as sns
+    import matplotlib.pyplot as plt
+    save_path = os.path.join(args.output_dir,args.name)
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
+
+    loss_best = 100
+    roc_max = 0
+  
+    lr = args.lr 
+    optimizer = torch.optim.Adam([
+        {'params':model.parameters(), 'weight_decay':args.weight_decay},
+        ], lr=lr, weight_decay=0.0)
+
+    for epoch in range(60):
+        print(epoch)
+        loss_train = []
+
+        model.train()
+        for x,_,idx in train_loader:
+            x = x.to(device)
+            # print(x.shape)
+
+            optimizer.zero_grad()
+            loss = -model(x,)
+
+            total_loss = loss
+
+            total_loss.backward()
+            clip_grad_value_(model.parameters(), 1)
+            optimizer.step()
+            loss_train.append(loss.item())
+
+
+
+        loss_test = []
+        with torch.no_grad():
+            for x,_,idx in test_loader:
+
+                x = x.to(device)
+                loss = -model.test(x, ).cpu().numpy()
+                loss_test.append(loss)
+        loss_test = np.concatenate(loss_test)
+
+    
+        roc_test = roc_auc_score(np.asarray(test_loader.dataset.label,dtype=int),loss_test)
+
+    
+        if roc_max < roc_test:
+            roc_max = roc_test
+            torch.save({
+            'model': model.state_dict(),
+            }, f"{save_path}/model.pth")
+
+        roc_max = max(roc_test, roc_max)
+        print(roc_max)
