@@ -7,8 +7,10 @@ import numpy as np
 
 
 def loader_SWat(root, batch_size, window_size, stride_size,train_split,label=False):
-    data = pd.read_csv(root,sep = ';', low_memory=False)
-    Timestamp = pd.to_datetime(data["Timestamp"])
+    data = pd.read_csv(root,sep = ',', low_memory=False)
+    data.columns = data.columns.str.strip()
+    data['Timestamp'] = data['Timestamp'].str.strip()
+    Timestamp = pd.to_datetime(data["Timestamp"], format="%d/%m/%Y %I:%M:%S %p")
     data["Timestamp"] = Timestamp
     data = data.set_index("Timestamp")
     labels = [ int(l!= 'Normal' ) for l in data["Normal/Attack"].values]
