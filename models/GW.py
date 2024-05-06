@@ -52,7 +52,7 @@ def IPOT_distance_torch_batch_optimized(C, beta=0.5, epsilon=1e-8):
     C_transposed = C.transpose(1, 2)  # Pre-transpose C
     distances = torch.einsum('bij,bji->b', [C, T])  # Efficient batch-wise trace of matmul
 
-    return distances
+    return 0.1*distances
 
 # def normalize_and_convert_to_cost_matrix(A):
 #     """Normalize the adjacency matrix and convert to cost matrix."""
@@ -157,7 +157,7 @@ def GW_distance_pytorch_simplified(Cs, Ct, beta=0.5, iteration=5, OT_iteration=2
     device = Cs.device
     gamma, Cgamma = GW_alg_pytorch_simplified(Cs.to(device), Ct.to(device), beta=beta, iteration=iteration, OT_iteration=OT_iteration)
     GW_distance = torch.einsum('bij,bij->b', Cgamma, gamma.transpose(1, 2))
-    return GW_distance
+    return 0.1*GW_distance
 
 def prune(dist, beta=0.1):
     # Manually reduce dimensions
