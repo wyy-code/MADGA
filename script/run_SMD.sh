@@ -1,4 +1,4 @@
-for file in /data/user/wyy/MTGFLOW-main/Data/input/processed/machine*train*
+for file in /data/user/wyy/Data/input/processed/machine*train*
 do 
     var=${file##*/}
     # echo $var
