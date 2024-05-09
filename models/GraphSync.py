@@ -199,7 +199,7 @@ class GraphSync(nn.Module):
         log_prob = log_prob.mean(dim=1)
 
         # return OT_loss
-        return log_prob - wd - gwd
+        return log_prob - 0.1* wd - 0.1*gwd
 
     def get_graph(self):
         return self.graph
