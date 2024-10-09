@@ -24,25 +24,25 @@ mkdir input
 Download the dataset in ```Data/input```.
 
 ## Train
-- train for MITGFlow
+- train for MADGA
 For example, training for WADI
 ```sh
-sh runners/run_WADI.sh
+sh script/run_WADI.sh
 ```
 - train for ```DeepSVDD```, ```DeepSAD```, ```DROCC```, and ```ALOCC```. 
 ```sh
-python3 train_other_model.py --name SWaT --model DeepSVDD
+python3 baseline_train.py --name SWaT --model DeepSVDD
 ```
 - train for ```USAD``` and ```DAGMM```
 We report the results by the implementations in the following links: 
 [`USAD`](https://github.com/manigalati/usad) and [`DAGMM`](https://github.com/danieltan07/dagmm/)
 
 ## Test
-We provide the pretained model of MTGFlow.
+We provide the pretained model of MADGA.
 
 For example, testing for WADI 
 ```sh
-sh runners/run_WADI_test.sh
+sh script/test_WADI.sh
 ```
 ## BibTex Citation
 
