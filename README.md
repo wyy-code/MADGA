@@ -10,11 +10,11 @@ This repository provides a PyTorch implementation of MADGA, which transforms the
 ## Data
 We test our method for five publicly processed datasets, e.g., ```SWaT```, ```WADI```, ```PSM```, ```MSL```, and ```SMD```.
 
-[`SWaT`](https://itrust.sutd.edu.sg/itrust-labs_datasets/dataset_info/#swat)
-[`WADI`](https://itrust.sutd.edu.sg/itrust-labs_datasets/dataset_info/#wadi)
-[`PSM`](https://github.com/eBay/RANSynCoders/tree/main/data) is released in [`RANSynCoders`](https://github.com/eBay/RANSynCoders/tree/main).
-[`MSL`](https://github.com/d-ailin/GDN/tree/main/data/msl) is released in [`GDN`](https://github.com/d-ailin/GDN/tree/main).
-[`SMD`](https://github.com/NetManAIOps/OmniAnomaly/tree/master/ServerMachineDataset) is released in [`OmniAnomaly`](https://github.com/NetManAIOps/OmniAnomaly).
+** [`SWaT`](https://itrust.sutd.edu.sg/itrust-labs_datasets/dataset_info/#swat)
+** [`WADI`](https://itrust.sutd.edu.sg/itrust-labs_datasets/dataset_info/#wadi)
+** [`PSM`](https://github.com/eBay/RANSynCoders/tree/main/data) is released in [`RANSynCoders`](https://github.com/eBay/RANSynCoders/tree/main).
+** [`MSL`](https://github.com/d-ailin/GDN/tree/main/data/msl) is released in [`GDN`](https://github.com/d-ailin/GDN/tree/main).
+** [`SMD`](https://github.com/NetManAIOps/OmniAnomaly/tree/master/ServerMachineDataset) is released in [`OmniAnomaly`](https://github.com/NetManAIOps/OmniAnomaly).
 
 ```sh
 mkdir Dataset
