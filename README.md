@@ -46,4 +46,4 @@ sh script/test_WADI.sh
 ```
 ## BibTex Citation
 
-If you find this paper or repository helpful, please cite our paper. Thanks a lot.
+If you find this paper or repository helpful, please cite our paper. Thanks a lot~
