@@ -4,9 +4,6 @@ This repository provides a PyTorch implementation of MADGA, which transforms the
 ## Framework
 ![Framework](./asset/framework.png)
 
-## Main results
-![Results](./asset/results.png)
-
 ## Data
 We test our method for five publicly processed datasets, e.g., ```SWaT```, ```WADI```, ```PSM```, ```MSL```, and ```SMD```.
 
