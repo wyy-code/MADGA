@@ -2,7 +2,7 @@
 This repository provides a PyTorch implementation of MADGA, which transforms the unsupervised anomaly detection to graph alignment problem.
 
 ## Framework
-![Framework](./asset/framework.png)
+![Framework](./Dataset/architecture.png)
 
 ## Data
 We test our method for five publicly processed datasets, e.g., ```SWaT```, ```WADI```, ```PSM```, ```MSL```, and ```SMD```.
