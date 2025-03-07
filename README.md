@@ -44,3 +44,12 @@ sh script/test_WADI.sh
 ## BibTex Citation
 
 If you find this paper or repository helpful, please cite our paper. Thanks a lot~
+
+```bigquery
+@article{wang2024interdependency,
+  title={Interdependency Matters: Graph Alignment for Multivariate Time Series Anomaly Detection},
+  author={Wang, Yuanyi and Sun, Haifeng and Wang, Chengsen and Zhu, Mengde and Wang, Jingyu and Tang, Wei and Qi, Qi and Zhuang, Zirui and Liao, Jianxin},
+  journal={arXiv preprint arXiv:2410.08877},
+  year={2024}
+}
+```
